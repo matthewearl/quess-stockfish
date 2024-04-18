@@ -1,4 +1,5 @@
 import asyncio
+import concurrent.futures
 import enum
 import logging
 
@@ -46,6 +47,22 @@ _model_to_piece = {
 _model_re = r"progs/([a-z]*).mdl"
 
 
+class _AsyncStockfish:
+    def __init__(self):
+        self._stockfish = stockfish.Stockfish()
+        self._executor = concurrent.futures.ThreadPoolExecutor(max_workers=1)
+
+    async def get_best_move(self, fen):
+        loop = asyncio.get_event_loop()
+        move = await loop.run_in_executor(self._executor, self._get_best_move,
+                                          fen)
+        return move
+
+    def _get_best_move(self, fen):
+        self._stockfish.set_fen_position(fen)
+        return self._stockfish.get_best_move()
+
+
 def _get_board_state(client):
     board_state = {}
     for k, ent in client.entities.items():
@@ -54,9 +71,7 @@ def _get_board_state(client):
             piece = _model_to_piece[model]
             unrounded_coords = (np.array(ent.origin[:2]) + 224) / 64
             coords = np.round((np.array(ent.origin[:2]) + 224) / 64).astype(int)
-            if np.any(np.abs(unrounded_coords - coords) > 0.2):
-                return None
-            side = Side.WHITE if ent.skin == 1 else Side.BLACK
+            side = Side.WHITE if ent.skin != 1 else Side.BLACK
             board_state[ent.entity_num] = (tuple(coords), side, piece)
 
     return board_state
@@ -76,7 +91,7 @@ def _board_state_to_fen(board_state):
             chars[y][x]
             for x in range(8)
         )
-        for y in range(8)
+        for y in reversed(range(8))
     )
     for n in reversed(range(1, 9)):
         field1 = field1.replace('.' * n, str(n))
@@ -125,7 +140,7 @@ async def do_client():
             pyquake.proto.ProtocolFlags(0)
         )
     )
-    sf = stockfish.Stockfish()
+    sf = _AsyncStockfish()
     try:
         demo = client.record_demo()
         await client.wait_until_spawn()
@@ -134,6 +149,8 @@ async def do_client():
         last_board_state = None
         from_coords = None
         to_coords = None
+        prev_click = False
+        click = True
         while True:
             if from_coords is None:
                 yaw = 0
@@ -142,8 +159,8 @@ async def do_client():
             else:
                 view_origin = np.array(client.player_entity.origin)
                 view_origin[2] += client.view_height
-                phase = int(client.time * 10) % 6
-                if phase < 3:
+                phase = int(client.time * 10) % 9
+                if phase < 6:
                     coords = from_coords
                 else:
                     coords = to_coords
@@ -151,7 +168,15 @@ async def do_client():
                 dir_ = target - view_origin
                 yaw = np.arctan2(dir_[1], dir_[0])
                 pitch = np.arctan2(-dir_[2], np.linalg.norm(dir_[:2]))
-                impulse = 100 if phase % 3 == 0 else 0
+                prev_click = click
+                click = (phase % 3 == 1)
+                if click and not prev_click:
+                    if phase < 3:
+                        impulse = 20
+                    else:
+                        impulse = 100
+                else:
+                    impulse = 0
 
             client.move(pitch, yaw, 0, 0, 0, 0, 0, impulse)
 
@@ -168,12 +193,11 @@ async def do_client():
                     fen_state = _board_state_to_fen(board_state)
                     print(fen_state)
 
-                    sf.set_fen_position(fen_state)
-                    encoded_move = sf.get_best_move()
+                    encoded_move = await sf.get_best_move(fen_state)
                     from_coords, to_coords = _decode_move(encoded_move)
                     print(f'playing {encoded_move} ({from_coords}-{to_coords})')
 
-                last_board_state = board_state
+                    last_board_state = board_state
 
     finally:
         await client.disconnect()
