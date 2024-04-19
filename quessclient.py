@@ -24,6 +24,16 @@ class Side(enum.Enum):
     BLACK = enum.auto()
 
 
+_idle_frames = {
+	PieceType.PAWN: [0, 1, 2, 3, 4, 5, 6, 7, 8],
+	PieceType.ROOK: [0, 1, 2, 3, 4, 5, 6, 7, 8],
+	PieceType.KNIGHT: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12],
+	PieceType.BISHOP: [0, 1, 2, 3, 4, 5, 6, 7, 8],
+	PieceType.QUEEN: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16],
+	PieceType.KING: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14],
+}
+
+
 _piece_to_notation = {
     PieceType.PAWN: 'P',
     PieceType.ROOK: 'R',
@@ -72,8 +82,9 @@ def _get_board_state(client):
         if model in _model_to_piece:
             piece = _model_to_piece[model]
             coords = np.round((np.array(ent.origin[:2]) + 224) / 64).astype(int)
-            if np.all(coords >= 0) and np.all(coords < 8):
-                side = Side.WHITE if ent.skin != 1 else Side.BLACK
+            side = Side.WHITE if ent.skin != 1 else Side.BLACK
+            if (np.all(coords >= 0) and np.all(coords < 8)
+                    and ent.frame in _idle_frames[piece]):
                 board_state[ent.entity_num] = (tuple(coords), side, piece)
 
     return board_state
