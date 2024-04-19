@@ -59,6 +59,8 @@ class _AsyncStockfish:
         return move
 
     def _get_best_move(self, fen):
+        if not self._stockfish.is_fen_valid(fen):
+            return None
         self._stockfish.set_fen_position(fen)
         return self._stockfish.get_best_move()
 
@@ -128,6 +130,8 @@ def _square_location(x, y):
 
 
 def _decode_move(move):
+    if move is None:
+        return None, None
     return ((ord(move[0]) - ord('a'), ord(move[1]) - ord('1')),
             (ord(move[2]) - ord('a'), ord(move[3]) - ord('1')))
 
