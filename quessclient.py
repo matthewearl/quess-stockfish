@@ -71,10 +71,10 @@ def _get_board_state(client):
         model = client.models[ent.model_num - 1]
         if model in _model_to_piece:
             piece = _model_to_piece[model]
-            unrounded_coords = (np.array(ent.origin[:2]) + 224) / 64
             coords = np.round((np.array(ent.origin[:2]) + 224) / 64).astype(int)
-            side = Side.WHITE if ent.skin != 1 else Side.BLACK
-            board_state[ent.entity_num] = (tuple(coords), side, piece)
+            if np.all(coords >= 0) and np.all(coords < 8):
+                side = Side.WHITE if ent.skin != 1 else Side.BLACK
+                board_state[ent.entity_num] = (tuple(coords), side, piece)
 
     return board_state
 
