@@ -137,7 +137,7 @@ def _print_board_state(board_state):
 
 
 def _square_location(x, y):
-    return (np.array([x, y, -16]) - [3.5, 3.5, 0]) * [64, 64, 1]
+    return (np.array([x, y, -15]) - [3.5, 3.5, 0]) * [64, 64, 1]
 
 
 def _decode_move(move):
@@ -173,7 +173,6 @@ async def do_client():
                 impulse = 0
             else:
                 view_origin = np.array(client.player_entity.origin)
-                view_origin[2] += client.view_height
                 phase = int(client.time * 10) % 9
                 if phase < 6:
                     coords = from_coords
