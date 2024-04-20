@@ -166,7 +166,7 @@ async def do_client():
         to_coords = None
         prev_click = False
         click = True
-        while True:
+        while not client.disconnected:
             if from_coords is None:
                 yaw = 0
                 pitch = 0
