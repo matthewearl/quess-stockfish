@@ -24,13 +24,18 @@ class Side(enum.Enum):
     BLACK = enum.auto()
 
 
+_look_forward_yaw = {
+    Side.WHITE:  np.pi / 2,
+    Side.BLACK:  -np.pi / 2,
+}
+
 _idle_frames = {
-	PieceType.PAWN: [0, 1, 2, 3, 4, 5, 6, 7, 8],
-	PieceType.ROOK: [0, 1, 2, 3, 4, 5, 6, 7, 8],
-	PieceType.KNIGHT: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12],
-	PieceType.BISHOP: [0, 1, 2, 3, 4, 5, 6, 7, 8],
-	PieceType.QUEEN: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16],
-	PieceType.KING: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14],
+    PieceType.PAWN: [0, 1, 2, 3, 4, 5, 6, 7, 8],
+    PieceType.ROOK: [0, 1, 2, 3, 4, 5, 6, 7, 8],
+    PieceType.KNIGHT: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12],
+    PieceType.BISHOP: [0, 1, 2, 3, 4, 5, 6, 7, 8],
+    PieceType.QUEEN: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16],
+    PieceType.KING: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14],
 }
 
 
@@ -140,6 +145,9 @@ def _square_location(x, y):
     return (np.array([x, y, -15]) - [3.5, 3.5, 0]) * [64, 64, 1]
 
 
+def _coords_to_highlight_model_num(x, y):
+    return 1 + (8 - x) + y * 8
+
 def _decode_move(move):
     if move is None:
         return None, None
@@ -147,7 +155,78 @@ def _decode_move(move):
             (ord(move[2]) - ord('a'), ord(move[3]) - ord('1')))
 
 
+def _coords_to_angles(x, y, client):
+    view_origin = np.array(client.player_entity.origin)
+    target = _square_location(x, y)
+    dir_ = target - view_origin
+    yaw = np.arctan2(dir_[1], dir_[0])
+    pitch = np.arctan2(-dir_[2], np.linalg.norm(dir_[:2]))
+
+    return pitch, yaw
+
+
+async def _wait_until_turn(client, side):
+    # Wait until we have any pieces at all.
+    board_state = None
+    while board_state is None or len(board_state) == 0:
+        board_state = _get_board_state(client)
+        await client.wait_for_update()
+
+    # Look at king until square below king is highlighted.
+    king_coords, = (
+        coords
+        for coords, piece_side, piece in board_state.values()
+        if piece_side == side
+        if piece == PieceType.KING
+    )
+    hl_model_num = _coords_to_highlight_model_num(*king_coords)
+    while all(ent.origin[2] == 0
+              for ent in client.entities.values()
+              if ent.model_num == hl_model_num):
+        pitch, yaw = _coords_to_angles(*king_coords, client)
+        client.move(pitch, yaw, 0, 0, 0, 0, 0, 20)
+        await client.wait_for_update()
+
+    print('looking away')
+    # Look away until the square is not highlighted.
+    while any(ent.origin[2] != 0
+              for ent in client.entities.values()
+              if ent.model_num == hl_model_num):
+        client.move(0, _look_forward_yaw[side], 0, 0, 0, 0, 0, 20)
+        await client.wait_for_update()
+    print('done')
+
+
 async def do_client():
+    client = await pyquake.client.AsyncClient.connect(
+        "localhost", 26000,
+        pyquake.proto.Protocol(
+            pyquake.proto.ProtocolVersion.NETQUAKE,
+            pyquake.proto.ProtocolFlags(0)
+        )
+    )
+    sf = _AsyncStockfish()
+    side = Side.WHITE
+    try:
+        demo = client.record_demo()
+        await client.wait_until_spawn()
+
+        for i in range(10):
+            print(f'waiting for turn {i}')
+            await _wait_until_turn(client, side)
+            client.move(0, 0, 0, 0, 0, 0, 0, 60)
+            await client.wait_for_update()
+
+        print('done')
+
+    finally:
+        await client.disconnect()
+        demo.stop_recording()
+        with open('pyquess.dem', 'wb') as f:
+            demo.dump(f)
+
+
+async def do_client_old():
     client = await pyquake.client.AsyncClient.connect(
         "localhost", 26000,
         pyquake.proto.Protocol(
@@ -194,7 +273,7 @@ async def do_client():
 
             client.move(pitch, yaw, 0, 0, 0, 0, 0, impulse)
 
-            await client.wait_for_movement(client.view_entity)
+            await client.wait_for_update()
 
             board_state = _get_board_state(client)
             if board_state is not None:
@@ -221,5 +300,5 @@ async def do_client():
 
 
 if __name__ == "__main__":
-    logging.basicConfig(level=logging.INFO)
+    logging.basicConfig(level=logging.ERROR)
     asyncio.run(do_client())
