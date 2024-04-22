@@ -137,21 +137,9 @@ def _get_move_from_diff(board_before: chess.BaseBoard,
     return move
 
 
-def _move_to_coords(move: chess.Move):
-    """Turn a UCI move into a pair of coords, and an optional promotion choice.
-
-    The coordinates represents squares where the bot needs to click.  The
-    promotion choice is generated for pawn promotion moves.
-    """
-
-    coords_from = (move.from_square % 8), (move.from_square // 8)
-    coords_to = (move.to_square % 8), (move.to_square // 8)
-    out = coords_from, coords_to, move.promotion
-
-    return out
-
-
-def _coords_to_angles(x, y, client):
+def _square_to_angles(square, client):
+    x = square % 8
+    y = square // 8
     view_origin = np.array(client.player_entity.origin)
     target = (np.array([x, y, -15]) - [3.5, 3.5, 0]) * [64, 64, 1]
     dir_ = target - view_origin
@@ -161,8 +149,10 @@ def _coords_to_angles(x, y, client):
     return pitch, yaw
 
 
-def _coords_to_highlight_model_num(x, y):
-    return 1 + (8 - x) + y * 8
+def _square_to_highlight_model_num(square):
+    x = square % 8
+    y = square // 8
+    return 9 - x + y * 8
 
 
 async def _wait_until_turn(client, side: chess.Color):
@@ -174,12 +164,11 @@ async def _wait_until_turn(client, side: chess.Color):
 
     # Look at the square below the king, until it is highlighted.
     king_square = board.king(side)
-    king_coords = (king_square % 8), (king_square // 8)
-    hl_model_num = _coords_to_highlight_model_num(*king_coords)
+    hl_model_num = _square_to_highlight_model_num(king_square)
     while all(ent.origin[2] == 0
               for ent in client.entities.values()
               if ent.model_num == hl_model_num):
-        pitch, yaw = _coords_to_angles(*king_coords, client)
+        pitch, yaw = _square_to_angles(king_square, client)
         client.move(pitch, yaw, 0, 0, 0, 0, 0, 20)
         await client.wait_for_update()
 
@@ -227,22 +216,21 @@ async def _play_game(client):
         logger.info('playing move %s', move)
 
         # Send commands to apply this move.
-        from_coords, to_coords, promotion = _move_to_coords(move)
-        pitch, yaw = _coords_to_angles(*from_coords, client)
+        pitch, yaw = _square_to_angles(move.from_square, client)
         client.move(pitch, yaw, 0, 0, 0, 0, 0, _Impulse.UNSELECT)
         await client.wait_for_update()
 
         client.move(pitch, yaw, 0, 0, 0, 0, 0, _Impulse.SELECT)
         await client.wait_for_update()
 
-        pitch, yaw = _coords_to_angles(*to_coords, client)
+        pitch, yaw = _square_to_angles(move.to_square, client)
         client.move(pitch, yaw, 0, 0, 0, 0, 0, 0)
         await client.wait_for_update()
 
         client.move(pitch, yaw, 0, 0, 0, 0, 0, _Impulse.SELECT)
         await client.wait_for_update()
 
-        if promotion is not None:
+        if move.promotion is not None:
             raise Exception("promotion not yet supported")
 
         # Update our board state.
