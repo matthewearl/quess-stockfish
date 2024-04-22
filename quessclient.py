@@ -84,27 +84,27 @@ def _get_board(client) -> chess.BaseBoard:
         if model in _model_to_piece_type:
             piece_type = _model_to_piece_type[model]
             coords = np.round((np.array(ent.origin[:2]) + 224) / 64).astype(int)
-            side = chess.WHITE if ent.skin != 1 else chess.BLACK
+            color = chess.WHITE if ent.skin != 1 else chess.BLACK
             if (np.all(coords >= 0) and np.all(coords < 8)
                     and ent.frame in _idle_frames[piece_type]):
                 board.set_piece_at(
                     coords[0] + coords[1] * 8,
-                    chess.Piece(piece_type, side)
+                    chess.Piece(piece_type, color)
                 )
     return board
 
 
 def _get_move_from_diff(board_before: chess.BaseBoard,
                         board_after: chess.BaseBoard,
-                        side: chess.Color) -> chess.Move:
+                        color: chess.Color) -> chess.Move:
     """Find the move that transitions between two given boards."""
 
     map_before = {square: piece
                   for square, piece in board_before.piece_map().items()
-                  if piece.color == side}
+                  if piece.color == color}
     map_after = {square: piece
                  for square, piece in board_after.piece_map().items()
-                 if piece.color == side}
+                 if piece.color == color}
 
     squares_before = map_before.keys() - map_after.keys()
     squares_after = map_after.keys() - map_before.keys()
@@ -155,15 +155,15 @@ def _square_to_highlight_model_num(square):
     return 9 - x + y * 8
 
 
-async def _wait_until_turn(client, side: chess.Color):
+async def _wait_until_turn(client, color: chess.Color):
     # Wait until we have any pieces at all.
     board = None
-    while board is None or board.king(side) is None:
+    while board is None or board.king(color) is None:
         board = _get_board(client)
         await client.wait_for_update()
 
     # Look at the square below the king, until it is highlighted.
-    king_square = board.king(side)
+    king_square = board.king(color)
     hl_model_num = _square_to_highlight_model_num(king_square)
     while all(ent.origin[2] == 0
               for ent in client.entities.values()
@@ -176,18 +176,18 @@ async def _wait_until_turn(client, side: chess.Color):
     while any(ent.origin[2] != 0
               for ent in client.entities.values()
               if ent.model_num == hl_model_num):
-        client.move(0, _look_forward_yaw[side], 0, 0, 0, 0, 0, 20)
+        client.move(0, _look_forward_yaw[color], 0, 0, 0, 0, 0, 20)
         await client.wait_for_update()
 
 
-async def _find_side(client):
-    # Work out which side we are.
+async def _find_color(client):
+    # Work out which color we are.
     while client.view_entity not in client.entities:
         await client.wait_for_update()
     player_origin = client.player_entity.origin
-    for side, origin in _player_origins.items():
+    for color, origin in _player_origins.items():
         if origin == player_origin:
-            out = side
+            out = color
             break
     else:
         raise Exception(f'Invalid player origin {player_origin}')
@@ -196,12 +196,12 @@ async def _find_side(client):
 
 async def _play_game(client):
     sf = _AsyncStockfish()
-    side = await _find_side(client)
-    if side != chess.WHITE:
+    color = await _find_color(client)
+    if color != chess.WHITE:
         raise Exception("Only bot as white is supported")
-    other_side = not side
+    other_color = not color
 
-    await _wait_until_turn(client, side)
+    await _wait_until_turn(client, color)
 
     if _get_board(client) != chess.BaseBoard():
         raise Exception("White must move first")
@@ -239,10 +239,10 @@ async def _play_game(client):
         if not board.is_checkmate():
             logger.info('other player to move:\n%s', board)
             # Wait for other player to make their turn
-            await _wait_until_turn(client, side)
+            await _wait_until_turn(client, color)
 
             board_after = _get_board(client)
-            move = _get_move_from_diff(board, board_after, other_side)
+            move = _get_move_from_diff(board, board_after, other_color)
             logger.info('other player moved: %s', move)
             board.push(move)
             assert board == board_after
