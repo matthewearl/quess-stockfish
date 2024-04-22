@@ -10,6 +10,9 @@ import pyquake.client
 import pyquake.proto
 
 
+logger = logging.getLogger(__name__)
+
+
 class _Impulse:
     UNSELECT = 20
     SELECT = 100
@@ -54,14 +57,22 @@ class _AsyncStockfish:
         self._executor = concurrent.futures.ThreadPoolExecutor(max_workers=1)
 
     async def get_best_move(self, board: chess.Board) -> chess.Move:
+        logger.info('thinking...')
         loop = asyncio.get_event_loop()
         move = await loop.run_in_executor(self._executor, self._get_best_move,
                                           board)
         return move
 
     def _get_best_move(self, board):
-        self._stockfish.set_fen_position(board.fen)
+        self._stockfish.set_fen_position(board.fen())
         return chess.Move.from_uci(self._stockfish.get_best_move())
+
+
+def _color_name(color: chess.Color):
+    if color == chess.WHITE:
+        return "white"
+    else:
+        return "black"
 
 
 def _get_board(client) -> chess.BaseBoard:
@@ -84,11 +95,16 @@ def _get_board(client) -> chess.BaseBoard:
 
 
 def _get_move_from_diff(board_before: chess.BaseBoard,
-                        board_after: chess.baseBoard) -> chess.Move:
+                        board_after: chess.BaseBoard,
+                        side: chess.Color) -> chess.Move:
     """Find the move that transitions between two given boards."""
 
-    map_before = board_before.piece_map()
-    map_after = board_before.piece_map()
+    map_before = {square: piece
+                  for square, piece in board_before.piece_map().items()
+                  if piece.color == side}
+    map_after = {square: piece
+                 for square, piece in board_after.piece_map().items()
+                 if piece.color == side}
 
     squares_before = map_before.keys() - map_after.keys()
     squares_after = map_after.keys() - map_before.keys()
@@ -105,7 +121,7 @@ def _get_move_from_diff(board_before: chess.BaseBoard,
             move = chess.Move(square_before, square_after,
                               map_after[square_after].piece_type)
         else:
-            raise Exception(f'invalid move {move}')
+            raise Exception('invalid move')
     elif len(squares_before) == 2 and len(squares_after) == 2:
         # This is a castling move.
         square_before, = (square
@@ -113,15 +129,15 @@ def _get_move_from_diff(board_before: chess.BaseBoard,
                           if map_before[square].piece_type == chess.KING)
         square_after, = (square
                          for square in squares_after
-                         if coords_to[square].piece_type == chess.KING)
+                         if map_after[square].piece_type == chess.KING)
         move = chess.Move(square_before, square_after)
     else:
-        raise Exception(f'invalid move {move}')
+        raise Exception('invalid move')
 
     return move
 
 
-def _move_to_coords(move: chess.Move, board_before: chess.Board):
+def _move_to_coords(move: chess.Move):
     """Turn a UCI move into a pair of coords, and an optional promotion choice.
 
     The coordinates represents squares where the bot needs to click.  The
@@ -130,26 +146,7 @@ def _move_to_coords(move: chess.Move, board_before: chess.Board):
 
     coords_from = (move.from_square % 8), (move.from_square // 8)
     coords_to = (move.to_square % 8), (move.to_square // 8)
-
-    king_square = board_before.king()
-
-    if king_square == move.from_square and coords_to[0] > coords_from[0] + 1:
-        # Kingside castling.
-        assert coords_from[1] == coords_to[1]
-        assert coords_to[1] in (0, 7)
-        assert coords_to[0] == 6
-        assert coords_from[0] == 4
-        out = coords_from, (7, coords_to[1]), None
-    elif king_square == move.from_square and coords_to[0] < coords_from[0] - 1:
-        # Queenside castling.
-        assert coords_from[1] == coords_to[1]
-        assert coords_to[1] in (0, 7)
-        assert coords_to[0] == 2
-        assert coords_from[0] == 4
-        out = coords_from, (0, coords_to[1]), None
-    else:
-        # Normal move or pawn promotion.
-        out = coords_from, coords_to, move.promotion
+    out = coords_from, coords_to, move.promotion
 
     return out
 
@@ -198,7 +195,7 @@ async def _find_side(client):
     # Work out which side we are.
     while client.view_entity not in client.entities:
         await client.wait_for_update()
-    player_origin = client.player_origin
+    player_origin = client.player_entity.origin
     for side, origin in _player_origins.items():
         if origin == player_origin:
             out = side
@@ -208,15 +205,9 @@ async def _find_side(client):
     return out
 
 
-async def _wait(client, duration):
-    start_time = client.time
-    while client.time < start_time + duration:
-        await client.wait_for_update()
-
-
 async def _play_game(client):
     sf = _AsyncStockfish()
-    side = _find_side(client)
+    side = await _find_side(client)
     if side != chess.WHITE:
         raise Exception("Only bot as white is supported")
     other_side = not side
@@ -229,26 +220,27 @@ async def _play_game(client):
     board = chess.Board()
 
     # Play until either the other player checkmates us, or we take their king.
-    done = False
-    while not done:
+    while not board.is_checkmate():
+        logger.info('bot to move:\n%s', board)
         # Get the move we should play, according to Stockfish.
         move = await sf.get_best_move(board)
+        logger.info('playing move %s', move)
 
         # Send commands to apply this move.
-        from_coords, to_coords, promotion = _move_to_coords(move, board)
+        from_coords, to_coords, promotion = _move_to_coords(move)
         pitch, yaw = _coords_to_angles(*from_coords, client)
         client.move(pitch, yaw, 0, 0, 0, 0, 0, _Impulse.UNSELECT)
-        async _wait(client, 0.1)
+        await client.wait_for_update()
 
         client.move(pitch, yaw, 0, 0, 0, 0, 0, _Impulse.SELECT)
-        async _wait(client, 0.1)
+        await client.wait_for_update()
 
         pitch, yaw = _coords_to_angles(*to_coords, client)
         client.move(pitch, yaw, 0, 0, 0, 0, 0, 0)
-        async _wait(client, 0.1)
+        await client.wait_for_update()
 
         client.move(pitch, yaw, 0, 0, 0, 0, 0, _Impulse.SELECT)
-        async _wait(client, 0.1)
+        await client.wait_for_update()
 
         if promotion is not None:
             raise Exception("promotion not yet supported")
@@ -256,23 +248,19 @@ async def _play_game(client):
         # Update our board state.
         board.push(move)
 
-        if board.king(other_side) is None:
-            # We just won.
-            done = True
-
-        if not done:
+        if not board.is_checkmate():
+            logger.info('other player to move:\n%s', board)
             # Wait for other player to make their turn
             await _wait_until_turn(client, side)
 
-            was_checkmate = board.is_checkmate()
             board_after = _get_board(client)
-            move = _get_move_from_diff(board, board_after)
+            move = _get_move_from_diff(board, board_after, other_side)
+            logger.info('other player moved: %s', move)
             board.push(move)
             assert board == board_after
 
-            if not was_checkmate and board.is_checkmate():
-                # We just lost.
-                done = True
+    # Declare a winner.
+    logger.info('%s wins:\n%s', _color_name(not board.turn), board)
 
 
 async def do_client():
