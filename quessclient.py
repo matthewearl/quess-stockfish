@@ -19,18 +19,21 @@ class _Impulse:
     PASS = 60
 
 
+# Yaw angles that when combined with zero pitch mean no square is selected.
 _look_forward_yaw = {
     chess.WHITE:  np.pi / 2,
     chess.BLACK:  -np.pi / 2,
 }
 
 
+# Initial player origins for each side.
 _player_origins = {
     chess.WHITE: (1.0, -411.0, 143.0),
     chess.BLACK: (4.0, 422.0, 137.0),
 }
 
 
+# Frames for each piece when idle.
 _idle_frames = {
     chess.PAWN: [0, 1, 2, 3, 4, 5, 6, 7, 8],
     chess.ROOK: [0, 1, 2, 3, 4, 5, 6, 7, 8],
@@ -41,6 +44,19 @@ _idle_frames = {
 }
 
 
+# Frames for the pawn when waiting for a promotion.
+_promotion_frames = [
+    28, 29, 30
+]
+
+
+# Order of pieces in the promotion selection cycle.
+_promotion_order = [
+    chess.QUEEN, chess.ROOK, chess.KNIGHT, chess.BISHOP
+]
+
+
+# Models for each piece.
 _model_to_piece_type = {
     "progs/knight.mdl": chess.PAWN,
     "progs/ogre.mdl": chess.ROOK,
@@ -75,14 +91,23 @@ def _color_name(color: chess.Color):
         return "black"
 
 
+def _ent_to_piece_type(client, ent: pyquake.client.Entity) -> \
+        chess.PieceType | None:
+    model = client.models[ent.model_num - 1]
+    if model in _model_to_piece_type:
+        piece_type = _model_to_piece_type[model]
+    else:
+        piece_type = None
+    return piece_type
+
+
 def _get_board(client) -> chess.BaseBoard:
     """Get a base board from current entity positions."""
     board = chess.BaseBoard.empty()
 
-    for k, ent in client.entities.items():
-        model = client.models[ent.model_num - 1]
-        if model in _model_to_piece_type:
-            piece_type = _model_to_piece_type[model]
+    for ent in client.entities.values():
+        piece_type = _ent_to_piece_type(client, ent)
+        if piece_type is not None:
             coords = np.round((np.array(ent.origin[:2]) + 224) / 64).astype(int)
             color = chess.WHITE if ent.skin != 1 else chess.BLACK
             if (np.all(coords >= 0) and np.all(coords < 8)
@@ -116,7 +141,7 @@ def _get_move_from_diff(board_before: chess.BaseBoard,
         if map_before[square_before] == map_after[square_after]:
             # This is a normal move
             move = chess.Move(square_before, square_after)
-        elif map_before[square_before] == chess.PAWN:
+        elif map_before[square_before].piece_type == chess.PAWN:
             # This is a pawn promotion
             move = chess.Move(square_before, square_after,
                               map_after[square_after].piece_type)
@@ -194,6 +219,17 @@ async def _find_color(client):
     return out
 
 
+async def _wait_for_promotion_anim(client):
+    done = False
+    while not done:
+        await client.wait_for_update()
+        for ent in client.entities.values():
+            if _ent_to_piece_type(client, ent) == chess.PAWN:
+                if ent.frame in _promotion_frames:
+                    done = True
+                    break
+
+
 async def _play_game(client):
     sf = _AsyncStockfish()
     color = await _find_color(client)
@@ -231,7 +267,13 @@ async def _play_game(client):
         await client.wait_for_update()
 
         if move.promotion is not None:
-            raise Exception("promotion not yet supported")
+            # Select correct piece from promotion menu.
+            await _wait_for_promotion_anim(client)
+            for _ in range(_promotion_order.index(move.promotion)):
+                client.move(pitch, yaw, 0, 0, 0, 0, 0, _Impulse.UNSELECT)
+                await client.wait_for_update()
+            client.move(pitch, yaw, 0, 0, 0, 0, 0, _Impulse.SELECT)
+            await client.wait_for_update()
 
         # Update our board state.
         board.push(move)
