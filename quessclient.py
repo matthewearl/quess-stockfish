@@ -19,13 +19,6 @@ class _Impulse:
     PASS = 60
 
 
-# Yaw angles that when combined with zero pitch mean no square is selected.
-_look_forward_yaw = {
-    chess.WHITE:  np.pi / 2,
-    chess.BLACK:  -np.pi / 2,
-}
-
-
 # Initial player origins for each side.
 _player_origins = {
     chess.WHITE: (1.0, -411.0, 143.0),
@@ -189,20 +182,13 @@ async def _wait_until_turn(client, color: chess.Color):
 
     # Look at the square below the king, until it is highlighted.
     king_square = board.king(color)
-    hl_model_num = _square_to_highlight_model_num(king_square)
     while all(ent.origin[2] == 0
               for ent in client.entities.values()
-              if ent.model_num == hl_model_num):
+              if ent.model_num == _square_to_highlight_model_num(king_square)):
         pitch, yaw = _square_to_angles(king_square, client)
         client.move(pitch, yaw, 0, 0, 0, 0, 0, 20)
         await client.wait_for_update()
-
-    # Look away until the square is not highlighted.
-    while any(ent.origin[2] != 0
-              for ent in client.entities.values()
-              if ent.model_num == hl_model_num):
-        client.move(0, _look_forward_yaw[color], 0, 0, 0, 0, 0, 20)
-        await client.wait_for_update()
+        king_square = board.king(color)
 
 
 async def _find_color(client):
