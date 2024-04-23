@@ -230,6 +230,14 @@ async def _wait_for_promotion_anim(client):
                     break
 
 
+def _mirror_move(move: chess.Move):
+    return chess.Move(
+        chess.square_mirror(move.from_square),
+        chess.square_mirror(move.to_square),
+        move.promotion
+    )
+
+
 async def _play_game(client):
     sf = _AsyncStockfish()
     color = await _find_color(client)
@@ -237,18 +245,29 @@ async def _play_game(client):
         raise Exception("Only bot as white is supported")
     other_color = not color
 
+    # Wait until it is our turn.
     await _wait_until_turn(client, color)
 
-    if _get_board(client) != chess.BaseBoard():
-        raise Exception("White must move first")
-
+    # Quess sometimes has black move first.  Handle this by mirroring the board
+    # and moves passed into and received from stockfish.
     board = chess.Board()
+    board_after = _get_board(client)
+    black_first = board_after != board
+    if black_first:
+        board.turn = other_color
+        move = _get_move_from_diff(board, board_after, other_color)
+        logger.info('black moved first: %s', move)
+        board.push(move)
+        assert board == board_after
 
     # Play until either the other player checkmates us, or we take their king.
     while not board.is_checkmate():
         logger.info('bot to move:\n%s', board)
+
         # Get the move we should play, according to Stockfish.
-        move = await sf.get_best_move(board)
+        move = await sf.get_best_move(board.mirror() if black_first else board)
+        if black_first:
+            move = _mirror_move(move)
         logger.info('playing move %s', move)
 
         # Send commands to apply this move.
