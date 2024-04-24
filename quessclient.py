@@ -160,6 +160,10 @@ def _square_to_angles(square, client):
     y = square // 8
     view_origin = np.array(client.player_entity.origin)
     target = (np.array([x, y, -15]) - [3.5, 3.5, 0]) * [64, 64, 1]
+    if y == 0 and view_origin[1] < 0:
+        target[1] += 16
+    elif y == 7 and view_origin[1] > 0:
+        target[1] -= 16
     dir_ = target - view_origin
     yaw = np.arctan2(dir_[1], dir_[0])
     pitch = np.arctan2(-dir_[2], np.linalg.norm(dir_[:2]))
@@ -227,8 +231,6 @@ def _mirror_move(move: chess.Move):
 async def _play_game(client):
     sf = _AsyncStockfish()
     color = await _find_color(client)
-    if color != chess.WHITE:
-        raise Exception("Only bot as white is supported")
     other_color = not color
 
     # Wait until it is our turn.
@@ -238,11 +240,15 @@ async def _play_game(client):
     # and moves passed into and received from stockfish.
     board = chess.Board()
     board_after = _get_board(client)
-    black_first = board_after != board
+    black_first = (board_after != board) == (color == chess.WHITE)
     if black_first:
-        board.turn = other_color
+        logger.info('playing black first variant')
+        board = board.mirror()  # Make initial board but with black to move.
+
+    # If the other player moved first, update the board
+    if board_after != board:
         move = _get_move_from_diff(board, board_after, other_color)
-        logger.info('black moved first: %s', move)
+        logger.info('other player moved: %s', move)
         board.push(move)
         assert board == board_after
 
