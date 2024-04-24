@@ -19,10 +19,11 @@ class _Impulse:
     PASS = 60
 
 
-# Initial player origins for each side.
-_player_origins = {
-    chess.WHITE: (1.0, -411.0, 143.0),
-    chess.BLACK: (4.0, 422.0, 137.0),
+# Z value of the playfield, +1 since the highlight block protrudes this amount.
+_floor_heights = {
+    'maps/quess1.bsp': -15,
+    'maps/quess2.bsp': 1,
+    'maps/quess3.bsp': -15,
 }
 
 
@@ -159,11 +160,12 @@ def _square_to_angles(square, client):
     x = square % 8
     y = square // 8
     view_origin = np.array(client.player_entity.origin)
-    target = (np.array([x, y, -15]) - [3.5, 3.5, 0]) * [64, 64, 1]
+    floor_height = _floor_heights[client.models[0]]
+    target = (np.array([x, y, floor_height]) - [3.5, 3.5, 0]) * [64, 64, 1]
     if y == 0 and view_origin[1] < 0:
-        target[1] += 16
+        target[1] += 8
     elif y == 7 and view_origin[1] > 0:
-        target[1] -= 16
+        target[1] -= 8
     dir_ = target - view_origin
     yaw = np.arctan2(dir_[1], dir_[0])
     pitch = np.arctan2(-dir_[2], np.linalg.norm(dir_[:2]))
@@ -200,13 +202,12 @@ async def _find_color(client):
     while client.view_entity not in client.entities:
         await client.wait_for_update()
     player_origin = client.player_entity.origin
-    for color, origin in _player_origins.items():
-        if origin == player_origin:
-            out = color
-            break
+
+    if player_origin[1] < 0:
+        color = chess.WHITE
     else:
-        raise Exception(f'Invalid player origin {player_origin}')
-    return out
+        color = chess.BLACK
+    return color
 
 
 async def _wait_for_promotion_anim(client):
