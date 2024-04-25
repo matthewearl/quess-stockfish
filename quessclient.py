@@ -1,6 +1,8 @@
 import asyncio
 import concurrent.futures
+import datetime
 import logging
+import os
 
 import chess
 import numpy as np
@@ -192,7 +194,7 @@ async def _wait_until_turn(client, color: chess.Color):
               for ent in client.entities.values()
               if ent.model_num == _square_to_highlight_model_num(king_square)):
         pitch, yaw = _square_to_angles(king_square, client)
-        client.move(pitch, yaw, 0, 0, 0, 0, 0, 20)
+        client.move(pitch, yaw, 0, 0, 0, 0, 0, _Impulse.UNSELECT)
         await client.wait_for_update()
         king_square = board.king(color)
 
@@ -232,6 +234,7 @@ def _mirror_move(move: chess.Move):
 async def _play_game(client):
     sf = _AsyncStockfish()
     color = await _find_color(client)
+    logger.info('playing as %s', _color_name(color))
     other_color = not color
 
     # Wait until it is our turn.
@@ -255,13 +258,13 @@ async def _play_game(client):
 
     # Play until either the other player checkmates us, or we take their king.
     while not board.is_checkmate():
-        logger.info('bot to move:\n%s', board)
+        logger.info('%.3f bot to move:\n%s', client.time, board)
 
         # Get the move we should play, according to Stockfish.
         move = await sf.get_best_move(board.mirror() if black_first else board)
         if black_first:
             move = _mirror_move(move)
-        logger.info('playing move %s', move)
+        logger.info('%.3f playing move %s', client.time, move)
 
         # Send commands to apply this move.
         pitch, yaw = _square_to_angles(move.from_square, client)
@@ -291,13 +294,13 @@ async def _play_game(client):
         board.push(move)
 
         if not board.is_checkmate():
-            logger.info('other player to move:\n%s', board)
+            logger.info('%.3f other player to move:\n%s', client.time, board)
             # Wait for other player to make their turn
             await _wait_until_turn(client, color)
 
             board_after = _get_board(client)
             move = _get_move_from_diff(board, board_after, other_color)
-            logger.info('other player moved: %s', move)
+            logger.info('%.3f other player moved: %s', client.time, move)
             board.push(move)
             assert board == board_after
 
@@ -321,7 +324,12 @@ async def do_client():
     finally:
         await client.disconnect()
         demo.stop_recording()
-        with open('pyquess.dem', 'wb') as f:
+        demo_fname = (
+            'pyquess'
+            f'-{datetime.datetime.utcnow().strftime("%Y%m%dT%H%M%SZ")}'
+            f'-{os.getpid()}.dem'
+        )
+        with open(demo_fname, 'wb') as f:
             demo.dump(f)
 
 
