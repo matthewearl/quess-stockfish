@@ -256,8 +256,8 @@ async def _play_game(client):
         board.push(move)
         assert board == board_after
 
-    # Play until either the other player checkmates us, or we take their king.
-    while not board.is_checkmate():
+    # Play until the game is over.
+    while not board.is_game_over():
         logger.info('%.3f bot to move:\n%s', client.time, board)
 
         # Get the move we should play, according to Stockfish.
@@ -293,7 +293,7 @@ async def _play_game(client):
         # Update our board state.
         board.push(move)
 
-        if not board.is_checkmate():
+        if not board.is_game_over():
             logger.info('%.3f other player to move:\n%s', client.time, board)
             # Wait for other player to make their turn
             await _wait_until_turn(client, color)
@@ -305,7 +305,7 @@ async def _play_game(client):
             assert board == board_after
 
     # Declare a winner.
-    logger.info('%s wins:\n%s', _color_name(not board.turn), board)
+    logger.info('outcome: %s\n%s', board.outcome(), board)
 
 
 async def do_client():
