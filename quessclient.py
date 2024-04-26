@@ -205,8 +205,8 @@ async def _wait_until_first_turn(client, color: chess.Color):
 
 async def _wait_until_turn(client):
     msg = None
-    while msg is None or msg == "Your turn":
-        msg = await client.wait_for_center_print()
+    while msg is None or msg not in ("Your turn", "You have lost.."):
+        msg = (await client.wait_for_center_print()).strip()
 
 
 async def _find_color(client):
