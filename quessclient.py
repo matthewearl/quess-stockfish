@@ -1,3 +1,4 @@
+import argparse
 import asyncio
 import concurrent.futures
 import datetime
@@ -64,8 +65,10 @@ _model_to_piece_type = {
 
 
 class _AsyncStockfish:
-    def __init__(self):
-        self._stockfish = stockfish.Stockfish()
+    def __init__(self, depth):
+        if depth is None:
+           depth = 15
+        self._stockfish = stockfish.Stockfish(depth=depth)
         self._executor = concurrent.futures.ThreadPoolExecutor(max_workers=1)
 
     async def get_best_move(self, board: chess.Board) -> chess.Move:
@@ -237,8 +240,8 @@ def _mirror_move(move: chess.Move):
     )
 
 
-async def _play_game(client):
-    sf = _AsyncStockfish()
+async def _play_game(client, depth):
+    sf = _AsyncStockfish(depth)
     color = await _find_color(client)
     logger.info('playing as %s', _color_name(color))
 
@@ -316,6 +319,11 @@ async def _play_game(client):
 
 
 async def do_client():
+    parser = argparse.ArgumentParser(description="quess-stockfish")
+    parser.add_argument("--depth", type=int, default=None,
+						help="Stockfish search depth")
+    args = parser.parse_args()
+
     client = await pyquake.client.AsyncClient.connect(
         "localhost", 26000,
         pyquake.proto.Protocol(
@@ -327,7 +335,7 @@ async def do_client():
     try:
         demo = client.record_demo()
         await client.wait_until_spawn()
-        await _play_game(client)
+        await _play_game(client, args.depth)
     finally:
         await client.disconnect()
         demo.stop_recording()
