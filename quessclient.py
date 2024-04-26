@@ -181,7 +181,7 @@ def _square_to_highlight_model_num(square):
     return 9 - x + y * 8
 
 
-async def _wait_until_turn(client, color: chess.Color):
+async def _wait_until_first_turn(client, color: chess.Color):
     # Wait until we have any pieces at all.
     board = None
     while board is None or board.king(color) is None:
@@ -197,6 +197,12 @@ async def _wait_until_turn(client, color: chess.Color):
         client.move(pitch, yaw, 0, 0, 0, 0, 0, _Impulse.UNSELECT)
         await client.wait_for_update()
         king_square = board.king(color)
+
+
+async def _wait_until_turn(client):
+    msg = None
+    while msg is None or msg == "Your turn":
+        msg = await client.wait_for_center_print()
 
 
 async def _find_color(client):
@@ -238,7 +244,7 @@ async def _play_game(client):
     other_color = not color
 
     # Wait until it is our turn.
-    await _wait_until_turn(client, color)
+    await _wait_until_first_turn(client, color)
 
     # Quess sometimes has black move first.  Handle this by mirroring the board
     # and moves passed into and received from stockfish.
@@ -296,7 +302,7 @@ async def _play_game(client):
         if not board.is_game_over():
             logger.info('%.3f other player to move:\n%s', client.time, board)
             # Wait for other player to make their turn
-            await _wait_until_turn(client, color)
+            await _wait_until_turn(client)
 
             board_after = _get_board(client)
             move = _get_move_from_diff(board, board_after, other_color)
