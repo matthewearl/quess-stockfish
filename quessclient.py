@@ -6,6 +6,7 @@ import logging
 import os
 
 import chess
+import chess.pgn
 import numpy as np
 import stockfish
 
@@ -240,6 +241,13 @@ def _mirror_move(move: chess.Move):
     )
 
 
+
+def _log_pgn(board):
+    game = chess.pgn.Game.from_board(board)
+    pgn_str = str(game).strip().split('\n')[-1]
+    logger.info('pgn: %s', pgn_str)
+
+
 async def _play_game(client, depth):
     sf = _AsyncStockfish(depth)
     color = await _find_color(client)
@@ -268,6 +276,7 @@ async def _play_game(client, depth):
     while not board.is_game_over():
         logger.info('%.3f bot (%s) to move:\n%s',
                     client.time, _color_name(color), board)
+        _log_pgn(board)
 
         # Get the move we should play, according to Stockfish.
         move = await sf.get_best_move(board.mirror() if black_first else board)
@@ -305,6 +314,7 @@ async def _play_game(client, depth):
         if not board.is_game_over():
             logger.info('%.3f other player (%s) to move:\n%s',
                         client.time, _color_name(not color), board)
+            _log_pgn(board)
             # Wait for other player to make their turn
             await _wait_until_turn(client)
 
