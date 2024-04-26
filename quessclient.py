@@ -241,7 +241,6 @@ async def _play_game(client):
     sf = _AsyncStockfish()
     color = await _find_color(client)
     logger.info('playing as %s', _color_name(color))
-    other_color = not color
 
     # Wait until it is our turn.
     await _wait_until_first_turn(client, color)
@@ -257,14 +256,15 @@ async def _play_game(client):
 
     # If the other player moved first, update the board
     if board_after != board:
-        move = _get_move_from_diff(board, board_after, other_color)
+        move = _get_move_from_diff(board, board_after, not color)
         logger.info('other player moved: %s', move)
         board.push(move)
         assert board == board_after
 
     # Play until the game is over.
     while not board.is_game_over():
-        logger.info('%.3f bot to move:\n%s', client.time, board)
+        logger.info('%.3f bot (%s) to move:\n%s',
+                    client.time, _color_name(color), board)
 
         # Get the move we should play, according to Stockfish.
         move = await sf.get_best_move(board.mirror() if black_first else board)
@@ -300,12 +300,13 @@ async def _play_game(client):
         board.push(move)
 
         if not board.is_game_over():
-            logger.info('%.3f other player to move:\n%s', client.time, board)
+            logger.info('%.3f other player (%s) to move:\n%s',
+                        client.time, _color_name(not color), board)
             # Wait for other player to make their turn
             await _wait_until_turn(client)
 
             board_after = _get_board(client)
-            move = _get_move_from_diff(board, board_after, other_color)
+            move = _get_move_from_diff(board, board_after, not color)
             logger.info('%.3f other player moved: %s', client.time, move)
             board.push(move)
             assert board == board_after
