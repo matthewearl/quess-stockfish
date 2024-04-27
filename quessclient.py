@@ -13,6 +13,7 @@ import stockfish
 
 import pyquake.client
 import pyquake.proto
+import pyquake.aiodgram
 
 
 logger = logging.getLogger(__name__)
@@ -410,13 +411,24 @@ async def do_client():
                         help="Replay game from a pgn string")
     args = parser.parse_args()
 
-    client = await pyquake.client.AsyncClient.connect(
-        "localhost", 26000,
-        pyquake.proto.Protocol(
-            pyquake.proto.ProtocolVersion.NETQUAKE,
-            pyquake.proto.ProtocolFlags(0)
+    try:
+        client = await pyquake.client.AsyncClient.connect(
+            "localhost", 26000,
+            pyquake.proto.Protocol(
+                pyquake.proto.ProtocolVersion.NETQUAKE,
+                pyquake.proto.ProtocolFlags(0)
+            ),
+            joequake_version=35,  # 16-bit input precision
         )
-    )
+    except pyquake.aiodgram.BadJoeQuakeVersion as e:
+        logger.warning('using low precision input')
+        client = await pyquake.client.AsyncClient.connect(
+            "localhost", 26000,
+            pyquake.proto.Protocol(
+                pyquake.proto.ProtocolVersion.NETQUAKE,
+                pyquake.proto.ProtocolFlags(0)
+            ),
+        )
 
     if args.pgn is None:
         bot = _AsyncStockfish(args.depth)
