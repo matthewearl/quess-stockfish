@@ -4,6 +4,7 @@ import concurrent.futures
 import datetime
 import logging
 import os
+import re
 
 import chess
 import chess.pgn
@@ -65,6 +66,14 @@ _model_to_piece_type = {
 }
 
 
+def _mirror_move(move: chess.Move):
+    return chess.Move(
+        chess.square_mirror(move.from_square),
+        chess.square_mirror(move.to_square),
+        move.promotion
+    )
+
+
 class _AsyncStockfish:
     def __init__(self, depth):
         if depth is None:
@@ -72,16 +81,67 @@ class _AsyncStockfish:
         self._stockfish = stockfish.Stockfish(depth=depth)
         self._executor = concurrent.futures.ThreadPoolExecutor(max_workers=1)
 
-    async def get_best_move(self, board: chess.Board) -> chess.Move:
+    async def get_move(self, board: chess.Board,
+                       black_first: bool) -> chess.Move | None:
+        if black_first:
+            board = board.mirror()
         logger.info('thinking...')
         loop = asyncio.get_event_loop()
         move = await loop.run_in_executor(self._executor, self._get_best_move,
                                           board)
+        if black_first:
+            move = _mirror_move(move)
         return move
 
     def _get_best_move(self, board):
         self._stockfish.set_fen_position(board.fen())
         return chess.Move.from_uci(self._stockfish.get_best_move())
+
+
+def _parse_pgn(pgn):
+    board = chess.Board()
+    sans = ''.join(re.split('\d+\.', pgn)).split()
+    black_first = sans and sans[0] == '..'
+    if black_first:
+        board = board.mirror()
+        sans = sans[1:]
+
+    if sans[-1] == '*':
+        sans = sans[:-1]
+
+    moves = []
+    for san in sans:
+        move = board.parse_san(san)
+        board.push(move)
+        moves.append(move)
+
+    return black_first, moves
+
+
+class _PgnPlayer:
+    def __init__(self, pgn: str):
+        self._black_first, self._moves = _parse_pgn(pgn)
+        self._move_number = 0
+        self._next_board = chess.Board()
+
+    async def get_move(self, board: chess.Board,
+                       black_first: bool) -> chess.Move | None:
+        if board != chess.Board() and self._move_number == 0:
+            self._move_number += 1
+
+        if (board != chess.Board()
+                or self._black_first == (board.turn == chess.BLACK)):
+            if self._move_number >= len(self._moves):
+                raise Exception("reached end of pgn")
+            move = self._moves[self._move_number]
+            logger.info('played move %d', self._move_number)
+            self._move_number += 2
+        else:
+            move = None
+            self._move_number = 1
+            logger.info('passing')
+
+        return move
 
 
 def _color_name(color: chess.Color):
@@ -233,23 +293,13 @@ async def _wait_for_promotion_anim(client):
                     break
 
 
-def _mirror_move(move: chess.Move):
-    return chess.Move(
-        chess.square_mirror(move.from_square),
-        chess.square_mirror(move.to_square),
-        move.promotion
-    )
-
-
-
 def _log_pgn(board):
     game = chess.pgn.Game.from_board(board)
     pgn_str = str(game).strip().split('\n')[-1]
     logger.info('pgn: %s', pgn_str)
 
 
-async def _play_game(client, depth):
-    sf = _AsyncStockfish(depth)
+async def _play_game(client, agent):
     color = await _find_color(client)
     logger.info('playing as %s', _color_name(color))
 
@@ -278,38 +328,43 @@ async def _play_game(client, depth):
                     client.time, _color_name(color), board)
         _log_pgn(board)
 
-        # Get the move we should play, according to Stockfish.
-        move = await sf.get_best_move(board.mirror() if black_first else board)
-        if black_first:
-            move = _mirror_move(move)
+        # Get the move we should play, according to the agent.
+        move = await agent.get_move(board, black_first)
+
         logger.info('%.3f playing move %s', client.time, move)
+        if move is None:
+            pitch, yaw = _square_to_angles(36, client)
+            client.move(pitch, yaw, 0, 0, 0, 0, 0, _Impulse.PASS)
 
-        # Send commands to apply this move.
-        pitch, yaw = _square_to_angles(move.from_square, client)
-        client.move(pitch, yaw, 0, 0, 0, 0, 0, _Impulse.UNSELECT)
-        await client.wait_for_update()
+            assert board == chess.Board(), "Can only pass on first turn"
+            board = board.mirror()
+        else:
+            # Send commands to apply this move.
+            pitch, yaw = _square_to_angles(move.from_square, client)
+            client.move(pitch, yaw, 0, 0, 0, 0, 0, _Impulse.UNSELECT)
+            await client.wait_for_update()
 
-        client.move(pitch, yaw, 0, 0, 0, 0, 0, _Impulse.SELECT)
-        await client.wait_for_update()
-
-        pitch, yaw = _square_to_angles(move.to_square, client)
-        client.move(pitch, yaw, 0, 0, 0, 0, 0, 0)
-        await client.wait_for_update()
-
-        client.move(pitch, yaw, 0, 0, 0, 0, 0, _Impulse.SELECT)
-        await client.wait_for_update()
-
-        if move.promotion is not None:
-            # Select correct piece from promotion menu.
-            await _wait_for_promotion_anim(client)
-            for _ in range(_promotion_order.index(move.promotion)):
-                client.move(pitch, yaw, 0, 0, 0, 0, 0, _Impulse.UNSELECT)
-                await client.wait_for_update()
             client.move(pitch, yaw, 0, 0, 0, 0, 0, _Impulse.SELECT)
             await client.wait_for_update()
 
-        # Update our board state.
-        board.push(move)
+            pitch, yaw = _square_to_angles(move.to_square, client)
+            client.move(pitch, yaw, 0, 0, 0, 0, 0, 0)
+            await client.wait_for_update()
+
+            client.move(pitch, yaw, 0, 0, 0, 0, 0, _Impulse.SELECT)
+            await client.wait_for_update()
+
+            if move.promotion is not None:
+                # Select correct piece from promotion menu.
+                await _wait_for_promotion_anim(client)
+                for _ in range(_promotion_order.index(move.promotion)):
+                    client.move(pitch, yaw, 0, 0, 0, 0, 0, _Impulse.UNSELECT)
+                    await client.wait_for_update()
+                client.move(pitch, yaw, 0, 0, 0, 0, 0, _Impulse.SELECT)
+                await client.wait_for_update()
+
+            # Update our board state.
+            board.push(move)
 
         if not board.is_game_over():
             logger.info('%.3f other player (%s) to move:\n%s',
@@ -331,7 +386,9 @@ async def _play_game(client, depth):
 async def do_client():
     parser = argparse.ArgumentParser(description="quess-stockfish")
     parser.add_argument("--depth", type=int, default=None,
-						help="Stockfish search depth")
+                        help="Stockfish search depth")
+    parser.add_argument("--pgn", type=str, default=None,
+                        help="Replay game from a pgn string")
     args = parser.parse_args()
 
     client = await pyquake.client.AsyncClient.connect(
@@ -342,10 +399,15 @@ async def do_client():
         )
     )
 
+    if args.pgn is None:
+        agent = _AsyncStockfish(args.depth)
+    else:
+        agent = _PgnPlayer(args.pgn)
+
     try:
         demo = client.record_demo()
         await client.wait_until_spawn()
-        await _play_game(client, args.depth)
+        await _play_game(client, agent)
     finally:
         await client.disconnect()
         demo.stop_recording()
