@@ -313,7 +313,7 @@ async def _play_bot_move(client, color, bot, board, black_first):
 
     logger.info('%.3f bot (%s) to move:\n%s',
                 client.time, _color_name(color),
-                board)
+                board.unicode(empty_square='-', invert_color=True))
     _log_pgn(board)
 
     # Get the move we should play, according to the bot.
@@ -366,7 +366,7 @@ def _update_board_after_other_move(client, color, board, board_after):
 async def _wait_for_other_move(client, color, board):
     logger.info('%.3f other player (%s) to move:\n%s',
                 client.time, _color_name(not color),
-                board)
+                board.unicode(empty_square='-', invert_color=True))
     _log_pgn(board)
     await _wait_until_turn(client)
     _update_board_after_other_move(client, color, board, _get_board(client))
