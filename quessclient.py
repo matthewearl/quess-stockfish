@@ -127,6 +127,8 @@ class _PgnPlayer:
         self._black_first, self._moves = _parse_pgn(pgn)
         self._move_number = 0
         self._next_board = chess.Board()
+        logger.info('black first: %s, moves: %s',
+                    self._black_first, self._moves)
 
     async def get_move(self, board: chess.Board,
                        black_first: bool) -> chess.Move | None:
@@ -303,7 +305,74 @@ def _log_pgn(board):
     logger.info('pgn: %s', pgn_str)
 
 
-async def _play_game(client, agent):
+async def _play_bot_move(client, color, bot, board, black_first):
+    """Play the bot's move.
+
+    It must be the bot's turn when this function is called.
+    """
+
+    logger.info('%.3f bot (%s) to move:\n%s',
+                client.time, _color_name(color),
+                board)
+    _log_pgn(board)
+
+    # Get the move we should play, according to the bot.
+    move = await bot.get_move(board, black_first)
+
+    logger.info('%.3f playing move %s', client.time, move)
+    if move is None:
+        pitch, yaw = _square_to_angles(36, client)
+        client.move(pitch, yaw, 0, 0, 0, 0, 0, _Impulse.PASS)
+        await client.wait_for_update()
+
+        assert not _get_pieces_moved(board), "Can only pass on first turn"
+        board.apply_mirror()
+    else:
+        # Send commands to apply this move.
+        pitch, yaw = _square_to_angles(move.from_square, client)
+        client.move(pitch, yaw, 0, 0, 0, 0, 0, _Impulse.UNSELECT)
+        await client.wait_for_update()
+
+        client.move(pitch, yaw, 0, 0, 0, 0, 0, _Impulse.SELECT)
+        await client.wait_for_update()
+
+        pitch, yaw = _square_to_angles(move.to_square, client)
+        client.move(pitch, yaw, 0, 0, 0, 0, 0, 0)
+        await client.wait_for_update()
+
+        client.move(pitch, yaw, 0, 0, 0, 0, 0, _Impulse.SELECT)
+        await client.wait_for_update()
+
+        if move.promotion is not None:
+            # Select correct piece from promotion menu.
+            await _wait_for_promotion_anim(client)
+            for _ in range(_promotion_order.index(move.promotion)):
+                client.move(pitch, yaw, 0, 0, 0, 0, 0, _Impulse.UNSELECT)
+                await client.wait_for_update()
+            client.move(pitch, yaw, 0, 0, 0, 0, 0, _Impulse.SELECT)
+            await client.wait_for_update()
+
+        # Update our board state.
+        board.push(move)
+
+
+def _update_board_after_other_move(client, color, board, board_after):
+    move = _get_move_from_diff(board, board_after, not color)
+    logger.info('%.3f other player moved: %s', client.time, move)
+    board.push(move)
+    assert board == board_after
+
+
+async def _wait_for_other_move(client, color, board):
+    logger.info('%.3f other player (%s) to move:\n%s',
+                client.time, _color_name(not color),
+                board)
+    _log_pgn(board)
+    await _wait_until_turn(client)
+    _update_board_after_other_move(client, color, board, _get_board(client))
+
+
+async def _play_game(client, bot):
     color = await _find_color(client)
     logger.info('playing as %s', _color_name(color))
 
@@ -321,68 +390,13 @@ async def _play_game(client, agent):
 
     # If the other player moved first, update the board
     if board_after != board:
-        move = _get_move_from_diff(board, board_after, not color)
-        logger.info('other player moved: %s', move)
-        board.push(move)
-        assert board == board_after
+        _update_board_after_other_move(client, color, board, board_after)
 
     # Play until the game is over.
     while not board.is_game_over():
-        logger.info('%.3f bot (%s) to move:\n%s',
-                    client.time, _color_name(color), board)
-        _log_pgn(board)
-
-        # Get the move we should play, according to the agent.
-        move = await agent.get_move(board, black_first)
-
-        logger.info('%.3f playing move %s', client.time, move)
-        if move is None:
-            pitch, yaw = _square_to_angles(36, client)
-            client.move(pitch, yaw, 0, 0, 0, 0, 0, _Impulse.PASS)
-            await client.wait_for_update()
-
-            assert not _get_pieces_moved(board), "Can only pass on first turn"
-            board = board.mirror()
-        else:
-            # Send commands to apply this move.
-            pitch, yaw = _square_to_angles(move.from_square, client)
-            client.move(pitch, yaw, 0, 0, 0, 0, 0, _Impulse.UNSELECT)
-            await client.wait_for_update()
-
-            client.move(pitch, yaw, 0, 0, 0, 0, 0, _Impulse.SELECT)
-            await client.wait_for_update()
-
-            pitch, yaw = _square_to_angles(move.to_square, client)
-            client.move(pitch, yaw, 0, 0, 0, 0, 0, 0)
-            await client.wait_for_update()
-
-            client.move(pitch, yaw, 0, 0, 0, 0, 0, _Impulse.SELECT)
-            await client.wait_for_update()
-
-            if move.promotion is not None:
-                # Select correct piece from promotion menu.
-                await _wait_for_promotion_anim(client)
-                for _ in range(_promotion_order.index(move.promotion)):
-                    client.move(pitch, yaw, 0, 0, 0, 0, 0, _Impulse.UNSELECT)
-                    await client.wait_for_update()
-                client.move(pitch, yaw, 0, 0, 0, 0, 0, _Impulse.SELECT)
-                await client.wait_for_update()
-
-            # Update our board state.
-            board.push(move)
-
+        await _play_bot_move(client, color, bot, board, black_first)
         if not board.is_game_over():
-            logger.info('%.3f other player (%s) to move:\n%s',
-                        client.time, _color_name(not color), board)
-            _log_pgn(board)
-            # Wait for other player to make their turn
-            await _wait_until_turn(client)
-
-            board_after = _get_board(client)
-            move = _get_move_from_diff(board, board_after, not color)
-            logger.info('%.3f other player moved: %s', client.time, move)
-            board.push(move)
-            assert board == board_after
+            await _wait_for_other_move(client, color, board)
 
     # Declare a winner.
     logger.info('outcome: %s\n%s', board.outcome(), board)
@@ -405,14 +419,14 @@ async def do_client():
     )
 
     if args.pgn is None:
-        agent = _AsyncStockfish(args.depth)
+        bot = _AsyncStockfish(args.depth)
     else:
-        agent = _PgnPlayer(args.pgn)
+        bot = _PgnPlayer(args.pgn)
 
     try:
         demo = client.record_demo()
         await client.wait_until_spawn()
-        await _play_game(client, agent)
+        await _play_game(client, bot)
     finally:
         await client.disconnect()
         demo.stop_recording()
