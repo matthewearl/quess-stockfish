@@ -118,6 +118,10 @@ def _parse_pgn(pgn):
     return black_first, moves
 
 
+def _get_pieces_moved(board):
+    return board != chess.Board() and board != chess.Board().mirror()
+
+
 class _PgnPlayer:
     def __init__(self, pgn: str):
         self._black_first, self._moves = _parse_pgn(pgn)
@@ -126,11 +130,11 @@ class _PgnPlayer:
 
     async def get_move(self, board: chess.Board,
                        black_first: bool) -> chess.Move | None:
-        if board != chess.Board() and self._move_number == 0:
+        pieces_moved = _get_pieces_moved(board)
+        if self._move_number == 0 and pieces_moved:
             self._move_number += 1
 
-        if (board != chess.Board()
-                or self._black_first == (board.turn == chess.BLACK)):
+        if pieces_moved or self._black_first == (board.turn == chess.BLACK):
             if self._move_number >= len(self._moves):
                 raise Exception("reached end of pgn")
             move = self._moves[self._move_number]
@@ -335,8 +339,9 @@ async def _play_game(client, agent):
         if move is None:
             pitch, yaw = _square_to_angles(36, client)
             client.move(pitch, yaw, 0, 0, 0, 0, 0, _Impulse.PASS)
+            await client.wait_for_update()
 
-            assert board == chess.Board(), "Can only pass on first turn"
+            assert not _get_pieces_moved(board), "Can only pass on first turn"
             board = board.mirror()
         else:
             # Send commands to apply this move.
