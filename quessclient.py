@@ -400,7 +400,8 @@ async def _play_game(client, bot):
             await _wait_for_other_move(client, color, board)
 
     # Declare a winner.
-    logger.info('outcome: %s\n%s', board.outcome(), board)
+    logger.info('outcome: %s\n%s', board.outcome(),
+                board.unicode(empty_square='-', invert_color=True))
 
 
 async def do_client():
