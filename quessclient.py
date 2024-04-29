@@ -414,6 +414,9 @@ async def do_client():
     args = parser.parse_args()
 
     try:
+        # Try connecting with MOD_JOEQUAKE first.  JoeQuake only handles 16-bit
+        # inputs with MOD_JOEQUAKE, regardless of the negotiated protocol
+        # (NETQUAKE, FITZQUAKE, etc).
         client = await pyquake.client.AsyncClient.connect(
             "localhost", 26000,
             pyquake.proto.Protocol(
@@ -422,8 +425,11 @@ async def do_client():
             ),
             joequake_version=35,  # 16-bit input precision
         )
+        logger.info('connected to joequake server')
     except pyquake.aiodgram.BadJoeQuakeVersion as e:
-        logger.warning('using low precision input')
+        # Otherwise connect without, which should work with other modern Quake
+        # ports.  We will use whatever protocol the server is using --- anything
+        # but NETQUAKE should give us 16-bit angles.
         client = await pyquake.client.AsyncClient.connect(
             "localhost", 26000,
             pyquake.proto.Protocol(
@@ -440,6 +446,10 @@ async def do_client():
     try:
         demo = client.record_demo()
         await client.wait_until_spawn()
+        if client.high_res_inputs:
+            logger.info('using high res inputs')
+        else:
+            logger.warning('using low resolution inputs, bot may misclick')
         await _play_game(client, bot)
     finally:
         await client.disconnect()
