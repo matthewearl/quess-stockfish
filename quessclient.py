@@ -402,6 +402,7 @@ async def _play_game(client, bot):
     # Declare a winner.
     logger.info('outcome: %s\n%s', board.outcome(),
                 board.unicode(empty_square='-', invert_color=True))
+    _log_pgn(board)
 
 
 async def do_client():
