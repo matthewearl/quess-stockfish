@@ -411,6 +411,10 @@ async def do_client():
                         help="Stockfish search depth")
     parser.add_argument("--pgn", type=str, default=None,
                         help="Replay game from a pgn string")
+    parser.add_argument("--ip", type=str, default="localhost",
+                        help="Server to connect to")
+    parser.add_argument("--port", type=int, default=26000,
+                        help="Port to connect to")
     args = parser.parse_args()
 
     try:
@@ -418,7 +422,7 @@ async def do_client():
         # inputs with MOD_JOEQUAKE, regardless of the negotiated protocol
         # (NETQUAKE, FITZQUAKE, etc).
         client = await pyquake.client.AsyncClient.connect(
-            "localhost", 26000,
+            args.ip, args.port,
             pyquake.proto.Protocol(
                 pyquake.proto.ProtocolVersion.NETQUAKE,
                 pyquake.proto.ProtocolFlags(0)
@@ -431,7 +435,7 @@ async def do_client():
         # ports.  We will use whatever protocol the server is using --- anything
         # but NETQUAKE should give us 16-bit angles.
         client = await pyquake.client.AsyncClient.connect(
-            "localhost", 26000,
+            args.ip, args.port,
             pyquake.proto.Protocol(
                 pyquake.proto.ProtocolVersion.NETQUAKE,
                 pyquake.proto.ProtocolFlags(0)
