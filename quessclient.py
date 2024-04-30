@@ -11,9 +11,11 @@ import chess.pgn
 import numpy as np
 import stockfish
 
-import pyquake.client
-import pyquake.proto
 import pyquake.aiodgram
+import pyquake.bsp
+import pyquake.client
+import pyquake.pak
+import pyquake.proto
 
 
 logger = logging.getLogger(__name__)
@@ -23,14 +25,6 @@ class _Impulse:
     UNSELECT = 20
     SELECT = 100
     PASS = 60
-
-
-# Z value of the playfield, +1 since the highlight block protrudes this amount.
-_floor_heights = {
-    'maps/quess1.bsp': -15,
-    'maps/quess2.bsp': 1,
-    'maps/quess3.bsp': -15,
-}
 
 
 # Frames for each piece when idle.
@@ -229,12 +223,11 @@ def _get_move_from_diff(board_before: chess.BaseBoard,
     return move
 
 
-def _square_to_angles(square, client):
+def _square_to_angles(square, client, board_height):
     x = square % 8
     y = square // 8
     view_origin = np.array(client.player_entity.origin)
-    floor_height = _floor_heights[client.models[0]]
-    target = (np.array([x, y, floor_height]) - [3.5, 3.5, 0]) * [64, 64, 1]
+    target = (np.array([x, y, board_height]) - [3.5, 3.5, 0]) * [64, 64, 1]
     if y == 0 and view_origin[1] < 0:
         target[1] += 8
     elif y == 7 and view_origin[1] > 0:
@@ -252,19 +245,14 @@ def _square_to_highlight_model_num(square):
     return 9 - x + y * 8
 
 
-async def _wait_until_first_turn(client, color: chess.Color):
-    # Wait until we have any pieces at all.
-    board = None
-    while board is None or board.king(color) is None:
-        board = _get_board(client)
-        await client.wait_for_update()
-
+async def _wait_until_first_turn(client, color: chess.Color, board_height):
+    board = _get_board(client)
     # Look at the square below the king, until it is highlighted.
     king_square = board.king(color)
     while all(ent.origin[2] == 0
               for ent in client.entities.values()
               if ent.model_num == _square_to_highlight_model_num(king_square)):
-        pitch, yaw = _square_to_angles(king_square, client)
+        pitch, yaw = _square_to_angles(king_square, client, board_height)
         client.move(pitch, yaw, 0, 0, 0, 0, 0, _Impulse.UNSELECT)
         await client.wait_for_update()
         king_square = board.king(color)
@@ -306,7 +294,7 @@ def _log_pgn(board):
     logger.info('pgn: %s', pgn_str)
 
 
-async def _play_bot_move(client, color, bot, board, black_first):
+async def _play_bot_move(client, color, bot, board, black_first, board_height):
     """Play the bot's move.
 
     It must be the bot's turn when this function is called.
@@ -322,7 +310,7 @@ async def _play_bot_move(client, color, bot, board, black_first):
 
     logger.info('%.3f playing move %s', client.time, move)
     if move is None:
-        pitch, yaw = _square_to_angles(36, client)
+        pitch, yaw = _square_to_angles(36, client, board_height)
         client.move(pitch, yaw, 0, 0, 0, 0, 0, _Impulse.PASS)
         await client.wait_for_update()
 
@@ -330,14 +318,14 @@ async def _play_bot_move(client, color, bot, board, black_first):
         board.apply_mirror()
     else:
         # Send commands to apply this move.
-        pitch, yaw = _square_to_angles(move.from_square, client)
+        pitch, yaw = _square_to_angles(move.from_square, client, board_height)
         client.move(pitch, yaw, 0, 0, 0, 0, 0, _Impulse.UNSELECT)
         await client.wait_for_update()
 
         client.move(pitch, yaw, 0, 0, 0, 0, 0, _Impulse.SELECT)
         await client.wait_for_update()
 
-        pitch, yaw = _square_to_angles(move.to_square, client)
+        pitch, yaw = _square_to_angles(move.to_square, client, board_height)
         client.move(pitch, yaw, 0, 0, 0, 0, 0, 0)
         await client.wait_for_update()
 
@@ -373,12 +361,67 @@ async def _wait_for_other_move(client, color, board):
     _update_board_after_other_move(client, color, board, _get_board(client))
 
 
-async def _play_game(client, bot):
+def _walk_planes(node):
+    if not isinstance(node, pyquake.bsp.Leaf):
+        yield node.plane
+        for child_num in range(2):
+            yield from _walk_planes(node.get_child(child_num))
+
+
+def _trace_down(model, x, y, z_hi):
+    """Intersect a downwards ray with collision hull."""
+
+    candidate_zs = (
+        plane.normal[2] * plane.dist
+        for plane in _walk_planes(model.node)
+        if abs(plane.normal[2]) == 1
+    )
+    return max(
+        z
+        for z in candidate_zs
+        if z <= z_hi
+        if model.get_leaf_from_point([x, y, z + 1e-5]).contents == -1
+        if model.get_leaf_from_point([x, y, z - 1e-5]).contents != -1
+    )
+
+
+def _find_board_height(client, fs):
+    """Find the height of the playing field."""
+
+    # Load and parse the bsp file.
+    with fs.open(client.models[0]) as f:
+        bsp = pyquake.bsp.Bsp(f)
+
+    # Find a point we know is above the board.
+    for ent in client.entities.values():
+        piece_type = _ent_to_piece_type(client, ent)
+        if piece_type is not None:
+            z_hi = ent.origin[2]
+            break
+    else:
+        raise Exception("No pieces on board")
+
+    # Trace down from that point.
+    board_height = _trace_down(bsp.models[0], 0., 0., z_hi) + 1
+
+    logger.info('board height %s', board_height)
+
+    return board_height
+
+
+async def _play_game(client, bot, fs):
     color = await _find_color(client)
     logger.info('playing as %s', _color_name(color))
 
+    # Wait until we have any pieces at all.
+    while _get_board(client).king(color) is None:
+        await client.wait_for_update()
+
+    # Find the floor height.
+    board_height = _find_board_height(client, fs)
+
     # Wait until it is our turn.
-    await _wait_until_first_turn(client, color)
+    await _wait_until_first_turn(client, color, board_height)
 
     # Quess sometimes has black move first.  Handle this by mirroring the board
     # and moves passed into and received from stockfish.
@@ -395,7 +438,8 @@ async def _play_game(client, bot):
 
     # Play until the game is over.
     while not board.is_game_over():
-        await _play_bot_move(client, color, bot, board, black_first)
+        await _play_bot_move(client, color, bot, board, black_first,
+                             board_height)
         if not board.is_game_over():
             await _wait_for_other_move(client, color, board)
 
@@ -415,7 +459,14 @@ async def do_client():
                         help="Server to connect to")
     parser.add_argument("--port", type=int, default=26000,
                         help="Port to connect to")
+    parser.add_argument("--basedir", type=str, default='.',
+                        help="Directory containing id1 directory")
+    parser.add_argument("--game", type=str, default='quess134',
+                        help="Name of the game directory inside the base"
+                             "directory")
     args = parser.parse_args()
+
+    fs = pyquake.pak.Filesystem(args.basedir, args.game)
 
     try:
         # Try connecting with MOD_JOEQUAKE first.  JoeQuake only handles 16-bit
@@ -454,7 +505,7 @@ async def do_client():
             logger.info('using high res inputs')
         else:
             logger.warning('using low resolution inputs, bot may misclick')
-        await _play_game(client, bot)
+        await _play_game(client, bot, fs)
     finally:
         await client.disconnect()
         demo.stop_recording()
