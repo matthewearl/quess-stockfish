@@ -474,24 +474,14 @@ async def do_client():
         # (NETQUAKE, FITZQUAKE, etc).
         client = await pyquake.client.AsyncClient.connect(
             args.ip, args.port,
-            pyquake.proto.Protocol(
-                pyquake.proto.ProtocolVersion.NETQUAKE,
-                pyquake.proto.ProtocolFlags(0)
-            ),
             joequake_version=35,  # 16-bit input precision
         )
         logger.info('connected to joequake server')
     except pyquake.aiodgram.BadJoeQuakeVersion as e:
         # Otherwise connect without, which should work with other modern Quake
-        # ports.  We will use whatever protocol the server is using --- anything
-        # but NETQUAKE should give us 16-bit angles.
-        client = await pyquake.client.AsyncClient.connect(
-            args.ip, args.port,
-            pyquake.proto.Protocol(
-                pyquake.proto.ProtocolVersion.NETQUAKE,
-                pyquake.proto.ProtocolFlags(0)
-            ),
-        )
+        # ports or original Quake.  We will use whatever protocol the server is
+        # using --- anything but NETQUAKE should give us 16-bit angles.
+        client = await pyquake.client.AsyncClient.connect(args.ip, args.port)
 
     if args.pgn is None:
         bot = _AsyncStockfish(args.depth)
