@@ -180,47 +180,24 @@ def _get_board(client) -> chess.BaseBoard:
     return board
 
 
-def _get_move_from_diff(board_before: chess.BaseBoard,
-                        board_after: chess.BaseBoard,
-                        color: chess.Color) -> chess.Move:
+def _get_move_from_diff(board_before: chess.Board,
+                        board_after: chess.BaseBoard) -> chess.Move:
     """Find the move that transitions between two given boards."""
 
-    map_before = {square: piece
-                  for square, piece in board_before.piece_map().items()
-                  if piece.color == color}
-    map_after = {square: piece
-                 for square, piece in board_after.piece_map().items()
-                 if piece.color == color}
+    def apply_move(b, m):
+        b = b.copy()
+        b.push(m)
+        return b
 
-    squares_before = map_before.keys() - map_after.keys()
-    squares_after = map_after.keys() - map_before.keys()
+    moves = [m
+             for m in board_before.legal_moves
+             if apply_move(board_before, m) == board_after]
 
-    if len(squares_before) == 1 and len(squares_after) == 1:
-        square_before, = squares_before
-        square_after, = squares_after
-
-        if map_before[square_before] == map_after[square_after]:
-            # This is a normal move
-            move = chess.Move(square_before, square_after)
-        elif map_before[square_before].piece_type == chess.PAWN:
-            # This is a pawn promotion
-            move = chess.Move(square_before, square_after,
-                              map_after[square_after].piece_type)
-        else:
-            raise Exception('invalid move')
-    elif len(squares_before) == 2 and len(squares_after) == 2:
-        # This is a castling move.
-        square_before, = (square
-                          for square in squares_before
-                          if map_before[square].piece_type == chess.KING)
-        square_after, = (square
-                         for square in squares_after
-                         if map_after[square].piece_type == chess.KING)
-        move = chess.Move(square_before, square_after)
-    else:
+    # There should be exactly one move that works
+    if len(moves) == 0:
         raise Exception('invalid move')
-
-    return move
+    assert len(moves) == 1
+    return moves[0]
 
 
 def _square_to_angles(square, client, board_height):
@@ -345,20 +322,20 @@ async def _play_bot_move(client, color, bot, board, black_first, board_height):
         board.push(move)
 
 
-def _update_board_after_other_move(client, color, board, board_after):
-    move = _get_move_from_diff(board, board_after, not color)
+def _update_board_after_other_move(client, board, board_after):
+    move = _get_move_from_diff(board, board_after)
     logger.info('%.3f other player moved: %s', client.time, move)
     board.push(move)
     assert board == board_after
 
 
-async def _wait_for_other_move(client, color, board):
+async def _wait_for_other_move(client, board):
     logger.info('%.3f other player (%s) to move:\n%s',
-                client.time, _color_name(not color),
+                client.time, _color_name(board.turn),
                 board.unicode(empty_square='-', invert_color=True))
     _log_pgn(board)
     await _wait_until_turn(client)
-    _update_board_after_other_move(client, color, board, _get_board(client))
+    _update_board_after_other_move(client, board, _get_board(client))
 
 
 def _walk_planes(node):
@@ -434,14 +411,14 @@ async def _play_game(client, bot, fs):
 
     # If the other player moved first, update the board
     if board_after != board:
-        _update_board_after_other_move(client, color, board, board_after)
+        _update_board_after_other_move(client, board, board_after)
 
     # Play until the game is over.
     while not board.is_game_over():
         await _play_bot_move(client, color, bot, board, black_first,
                              board_height)
         if not board.is_game_over():
-            await _wait_for_other_move(client, color, board)
+            await _wait_for_other_move(client, board)
 
     # Declare a winner.
     logger.info('outcome: %s\n%s', board.outcome(),
