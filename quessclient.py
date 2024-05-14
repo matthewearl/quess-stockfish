@@ -271,14 +271,14 @@ def _log_pgn(board):
     logger.info('pgn: %s', pgn_str)
 
 
-async def _play_bot_move(client, color, bot, board, black_first, board_height):
+async def _play_bot_move(client, bot, board, black_first, board_height):
     """Play the bot's move.
 
     It must be the bot's turn when this function is called.
     """
 
     logger.info('%.3f bot (%s) to move:\n%s',
-                client.time, _color_name(color),
+                client.time, _color_name(board.turn),
                 board.unicode(empty_square='-', invert_color=True))
     _log_pgn(board)
 
@@ -415,8 +415,7 @@ async def _play_game(client, bot, fs):
 
     # Play until the game is over.
     while not board.is_game_over():
-        await _play_bot_move(client, color, bot, board, black_first,
-                             board_height)
+        await _play_bot_move(client, bot, board, black_first, board_height)
         if not board.is_game_over():
             await _wait_for_other_move(client, board)
 
