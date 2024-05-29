@@ -440,23 +440,32 @@ async def do_client():
     parser.add_argument("--game", type=str, default='quess134',
                         help="Name of the game directory inside the base"
                              "directory")
+    parser.add_argument('--joequake', action='store_true',
+                        help="Pass when connecting to a JQ server for "
+                             "high-res angles.  Not needed for quakespasm and "
+                             "derivatives.")
     args = parser.parse_args()
 
     fs = pyquake.pak.Filesystem(args.basedir, args.game)
 
-    try:
-        # Try connecting with MOD_JOEQUAKE first.  JoeQuake only handles 16-bit
+    if args.joequake:
+        # Try connecting with MOD_JOEQUAKE.  JoeQuake only handles 16-bit
         # inputs with MOD_JOEQUAKE, regardless of the negotiated protocol
         # (NETQUAKE, FITZQUAKE, etc).
-        client = await pyquake.client.AsyncClient.connect(
-            args.ip, args.port,
-            joequake_version=35,  # 16-bit input precision
-        )
-        logger.info('connected to joequake server')
-    except pyquake.aiodgram.BadJoeQuakeVersion as e:
-        # Otherwise connect without, which should work with other modern Quake
-        # ports or original Quake.  We will use whatever protocol the server is
-        # using --- anything but NETQUAKE should give us 16-bit angles.
+        try:
+            client = await pyquake.client.AsyncClient.connect(
+                args.ip, args.port,
+                joequake_version=35,  # 16-bit input precision
+            )
+        except pyquake.aiodgram.BadJoeQuakeVersion:
+            raise Exception("Could not set MOD_JOEQUAKE.  Are you connecting "
+                            "to a JoeQuake server?  If not do not pass "
+                            "--joequake")
+    else:
+        # Connect without any protocol mod, which should work with other modern
+        # Quake ports or original Quake.  We will use whatever protocol the
+        # server is using --- anything but NETQUAKE should give us 16-bit
+        # angles.
         client = await pyquake.client.AsyncClient.connect(args.ip, args.port)
 
     if args.pgn is None:
