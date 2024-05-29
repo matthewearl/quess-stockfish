@@ -44,6 +44,10 @@ async def run_game():
         '-mem', '512',
         '-game', args.game,
         '-dedicated', '3',
+        '+teamplay', '2',
+        '+coop', '1',
+        '+timelimit', '10800',
+        '+map', 'quess1',
     ]
 
     client_args = [
