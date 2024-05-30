@@ -36,6 +36,8 @@ async def run_game():
     parser.add_argument("--game", type=str, default='quess134',
                         help="Name of the game directory inside the base"
                              "directory")
+    parser.add_argument("--pgn", type=str, default=None,
+                        help="Replay game from a pgn string")
     parser.add_argument('--joequake', action='store_true',
                         help="Pass when connecting to a JQ server for "
                              "high-res angles.  Not needed for quakespasm and "
@@ -61,6 +63,9 @@ async def run_game():
     ]
     if args.joequake:
         client_args.append('--joequake')
+
+    if args.pgn is not None:
+        client_args.extend(['--pgn', args.pgn])
 
     server_proc = await _make_proc(server_args)
     client_proc1 = await _make_proc(client_args
