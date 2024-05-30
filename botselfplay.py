@@ -83,25 +83,26 @@ async def run_game():
         'client2': "C2",
     }
 
-    queue = asyncio.Queue()
-    for proc_name, proc in all_procs.items():
-        asyncio.create_task(_read_output(proc, proc.stdout,
-                            (proc_name, proc.pid, 'stdout'), queue))
-    for proc_name, proc in all_procs.items():
-        asyncio.create_task(_read_output(proc, proc.stderr,
-                            (proc_name, proc.pid, 'stderr'), queue))
+    try:
+        queue = asyncio.Queue()
+        for proc_name, proc in all_procs.items():
+            asyncio.create_task(_read_output(proc, proc.stdout,
+                                (proc_name, proc.pid, 'stdout'), queue))
+        for proc_name, proc in all_procs.items():
+            asyncio.create_task(_read_output(proc, proc.stderr,
+                                (proc_name, proc.pid, 'stderr'), queue))
 
-    while True:
-        (proc_name, pid, stream_name), line = await queue.get()
-        print(f'[{labels[proc_name]} {pid} {stream_name}] {line}')
-        if proc_name != 'server' and 'outcome: Outcome' in line:
-            print(f'game over:  {line}')
-            break
+        while True:
+            (proc_name, pid, stream_name), line = await queue.get()
+            print(f'[{labels[proc_name]} {pid} {stream_name}] {line}')
+            if proc_name != 'server' and 'outcome: Outcome' in line:
+                print(f'game over:  {line}')
+                break
+    finally:
+        for proc in all_procs.values():
+            proc.send_signal(signal.SIGINT)
 
-    for proc in all_procs.values():
-        proc.send_signal(signal.SIGINT)
-
-    await asyncio.gather(*(p.wait() for p in all_procs.values()))
+        await asyncio.gather(*(p.wait() for p in all_procs.values()))
 
 
 if __name__ == "__main__":
