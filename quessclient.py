@@ -438,7 +438,7 @@ async def do_client():
     parser.add_argument("--basedir", type=str, default='.',
                         help="Directory containing id1 directory")
     parser.add_argument("--game", type=str, default='quess134',
-                        help="Name of the game directory inside the base"
+                        help="Name of the game directory inside the base "
                              "directory")
     parser.add_argument('--joequake', action='store_true',
                         help="Pass when connecting to a JQ server for "

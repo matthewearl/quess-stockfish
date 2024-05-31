@@ -43,13 +43,34 @@ Start a game in listen mode, with your source port of choice:
 
 ```bash
 cd <quake-install-dir>
-./ironwail -game quess134 -listen 2
+path/to/ironwail -game quess134 -listen 2
 ```
 
-Run the bot:
+In another window run the bot:
 ```bash
 cd <quake-install-dir>
 python path/to/quessclient.py
+```
+
+## Options
+
+```bash
+usage: quessclient.py [-h] [--depth DEPTH] [--pgn PGN] [--ip IP]
+                      [--port PORT] [--basedir BASEDIR] [--game GAME]
+                      [--joequake]
+
+quess-stockfish
+
+options:
+  -h, --help         show this help message and exit
+  --depth DEPTH      Stockfish search depth
+  --pgn PGN          Replay game from a pgn string
+  --ip IP            Server to connect to
+  --port PORT        Port to connect to
+  --basedir BASEDIR  Directory containing id1 directory
+  --game GAME        Name of the game directory inside the base directory
+  --joequake         Pass when connecting to a JQ server for high-res angles.
+                     Not needed for quakespasm and derivatives.
 ```
 
 ## Bugs / limitations
