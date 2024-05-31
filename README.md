@@ -1,6 +1,6 @@
 # Quess-stockfish
 
-This is the code behind my Quess bot.  See  
+This is the code behind my Quess bot, which I made a video about here:
 
 [![I made an AI for a classic Quake mod](https://img.youtube.com/vi/q1OlXfFsRX4/maxresdefault.jpg)](https://www.youtube.com/watch?v=q1OlXfFsRX4) 
 
@@ -14,8 +14,8 @@ Install a stockfish binary, for example on Ubuntu run:
 sudo apt install stockfish
 ```
 
-Make a new Python virtualenv (tested with Python 3.10.0), and install
-dependencies:
+Make and activate a new Python virtualenv (tested with Python 3.10.12).
+Checkout and then cd into this repo.  Install dependencies:
 
 ```bash
 pip install -r requirements.txt
