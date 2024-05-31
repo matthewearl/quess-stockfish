@@ -1,5 +1,3 @@
 chess==1.10.0
 stockfish==3.28.0
-
-# TBD: set commit hash
-#git+https://github.com/matthewearl/pyquake.git@<commit_hash>#egg=pyquake
+git+https://github.com/matthewearl/pyquake.git@ccc4bce5475d0e0e5bd43b910e8bba501d82d205#egg=pyquake
