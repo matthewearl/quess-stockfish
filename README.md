@@ -85,5 +85,9 @@ options:
 - There is a rare Quess bug where a rook (ogre) attacking a queen (shambler)
   never ends, since the grenades pass straight through the shambler.  In this
   case the game gets stuck.
+- Quess allows an en passant attack against a white pawn on the 4th rank or
+  against a black pawn on the 5th rank even if the pawn being attacked last
+  moved only one square.  If a player does this against the bot, the bot cannot
+  work out which move was just played and raises an "invalid move" exception.
 - The bot is not very tolerant to packet loss, so expect instability if running
   over a real network.
