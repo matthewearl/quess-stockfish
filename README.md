@@ -89,5 +89,7 @@ options:
   against a black pawn on the 5th rank even if the pawn being attacked last
   moved only one square.  If a player does this against the bot, the bot cannot
   work out which move was just played and raises an "invalid move" exception.
+- Quess allows passing on a move (playing without moving a piece).  This is also
+  illegal in real chess so causes an invalid move exception to be raised.
 - The bot is not very tolerant to packet loss, so expect instability if running
   over a real network.
