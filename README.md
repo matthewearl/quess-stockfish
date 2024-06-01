@@ -82,6 +82,12 @@ options:
 - There is a Quess bug where the grabber (the fiend that removes corpses) gets
   stuck on things.  Occasionally this can block pieces from moving and stall
   the game.
+- Quess bug: If two grabbers are spawned at once then when the second one
+  teleports away the world entity will be freed.  This is bad for a number of
+  reasons but manifests itself as the bot being unable to click on certain
+  squares and getting stuck.  To avoid this wait for any grabbers to finish
+  before playing a move.  (This might be tricky to avoid if a grabber gets
+  stuck.)
 - There is a rare Quess bug where a rook (ogre) attacking a queen (shambler)
   never ends, since the grenades pass straight through the shambler.  In this
   case the game gets stuck.
