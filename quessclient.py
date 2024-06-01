@@ -232,6 +232,7 @@ async def _wait_until_first_turn(client, color: chess.Color, board_height):
         pitch, yaw = _square_to_angles(king_square, client, board_height)
         client.move(pitch, yaw, 0, 0, 0, 0, 0, _Impulse.UNSELECT)
         await client.wait_for_update()
+        await client.wait_for_update()
         king_square = board.king(color)
 
 
@@ -290,6 +291,7 @@ async def _play_bot_move(client, bot, board, black_first, board_height):
         pitch, yaw = _square_to_angles(36, client, board_height)
         client.move(pitch, yaw, 0, 0, 0, 0, 0, _Impulse.PASS)
         await client.wait_for_update()
+        await client.wait_for_update()
 
         assert not _get_pieces_moved(board), "Can only pass on first turn"
         board.apply_mirror()
@@ -298,15 +300,19 @@ async def _play_bot_move(client, bot, board, black_first, board_height):
         pitch, yaw = _square_to_angles(move.from_square, client, board_height)
         client.move(pitch, yaw, 0, 0, 0, 0, 0, _Impulse.UNSELECT)
         await client.wait_for_update()
+        await client.wait_for_update()
 
         client.move(pitch, yaw, 0, 0, 0, 0, 0, _Impulse.SELECT)
+        await client.wait_for_update()
         await client.wait_for_update()
 
         pitch, yaw = _square_to_angles(move.to_square, client, board_height)
         client.move(pitch, yaw, 0, 0, 0, 0, 0, 0)
         await client.wait_for_update()
+        await client.wait_for_update()
 
         client.move(pitch, yaw, 0, 0, 0, 0, 0, _Impulse.SELECT)
+        await client.wait_for_update()
         await client.wait_for_update()
 
         if move.promotion is not None:
@@ -315,7 +321,9 @@ async def _play_bot_move(client, bot, board, black_first, board_height):
             for _ in range(_promotion_order.index(move.promotion)):
                 client.move(pitch, yaw, 0, 0, 0, 0, 0, _Impulse.UNSELECT)
                 await client.wait_for_update()
+                await client.wait_for_update()
             client.move(pitch, yaw, 0, 0, 0, 0, 0, _Impulse.SELECT)
+            await client.wait_for_update()
             await client.wait_for_update()
 
         # Update our board state.
