@@ -8,7 +8,7 @@ This has only been tested on Linux, so YMMV.
 
 ## Installation
 
-Install a stockfish binary, for example on Ubuntu run:
+Install a Stockfish binary, for example on Ubuntu run:
 
 ```bash
 sudo apt install stockfish
@@ -51,6 +51,9 @@ In another window run the bot:
 cd <quake-install-dir>
 python path/to/quessclient.py
 ```
+
+The bot should connect to your listen server, and leave when the game is over.
+Restart the server and re-run the bot to play another game.
 
 ## Options
 
